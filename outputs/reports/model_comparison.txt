@@ -1,0 +1,33 @@
+=== Baseline Logistic Regression (scaled) ===
+              precision    recall  f1-score   support
+
+       False       0.92      0.68      0.78       439
+        True       0.35      0.76      0.48       103
+
+    accuracy                           0.69       542
+   macro avg       0.64      0.72      0.63       542
+weighted avg       0.81      0.69      0.72       542
+
+
+=== Resampled Logistic Regression ===
+              precision    recall  f1-score   support
+
+       False       0.74      0.68      0.71       439
+        True       0.71      0.76      0.73       439
+
+    accuracy                           0.72       878
+   macro avg       0.72      0.72      0.72       878
+weighted avg       0.72      0.72      0.72       878
+
+
+=== Random Forest on Resampled ===
+              precision    recall  f1-score   support
+
+       False       0.93      0.89      0.91       467
+        True       0.88      0.93      0.91       411
+
+    accuracy                           0.91       878
+   macro avg       0.91      0.91      0.91       878
+weighted avg       0.91      0.91      0.91       878
+
+
