@@ -22,15 +22,33 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from src.visualizations import plot_confusion_matrix, plot_feature_importance
+from src.model import train_knn, train_svm, train_ann
+from src.feature_engineering import extract_stamina_features
+from src.feature_engineering import (
+    extract_player_match_features,
+    extract_stamina_features,
+    add_match_context_features,
+    add_timing_features,
+    add_position_feature,
+    compute_15_min_context,
+)
+from src.model import train_xgboost
+from src.explainability import explain_model_shap
+from src.visualizations import plot_pca_3d
+from sklearn.metrics import precision_recall_curve, auc
 
 
 
-
+# Set the path to your data directory
 DATA_PATH = r"H:\AI AS\Individual Project\AI-Agent-For-Football-Tactics-During-Live-Matches\data"
 
 # Load event data
 df = load_event_data(DATA_PATH, max_files=100)
 df["player_id"] = df["player"].apply(lambda x: x.get("id") if isinstance(x, dict) else None)
+df = add_match_context_features(df)
+df = add_timing_features(df)
+df = add_position_feature(df)
+df["type_name"] = df["type"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)  # <-- moved here
 print(f"✅ Loaded {len(df)} events")
 
 # Show event type distribution
@@ -39,7 +57,47 @@ print(count_event_types(df).head(10))
 
 # Feature Engineering (for model)
 features_df = extract_player_match_features(df)
+context_df = compute_15_min_context(df)  # now safe to call
+
+features_df = features_df.merge(context_df, on=["match_id", "player_id"], how="left").fillna(0)
+if "minutes_played" in features_df.columns:
+    features_df = features_df.drop(columns=["minutes_played"])
+
+features_df = pd.get_dummies(features_df, columns=["position_name"], dummy_na=True)
+
 print("✅ Feature DataFrame shape:", features_df.shape)
+
+
+df["type_name"] = df["type"].apply(lambda x: x.get("name") if isinstance(x, dict) else x)
+carry_events = df[df["type_name"] == "Carry"]
+
+# Map type_name if not already done
+df["type_name"] = df["type"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
+
+# Filter and print a sample Carry event
+carry_event_sample = df[df["type_name"] == "Carry"]
+if not carry_event_sample.empty:
+    print("🔍 Carry event sample:")
+    print(carry_event_sample.iloc[0].to_dict())  # shows nested structure
+else:
+    print("❌ No Carry events found.")
+
+
+# New stamina-related features
+stamina_df = extract_stamina_features(df)
+features_df = features_df.merge(stamina_df, on=["match_id", "player_id"], how="left").fillna(0)
+print("✅ Added stamina and running distance features:", features_df.shape)
+# Debug: Inspect one Carry event
+df["type_name"] = df["type"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
+carry_sample = df[df["type_name"] == "Carry"]
+
+if not carry_sample.empty:
+    print("🔍 Sample Carry event:")
+    print(carry_sample.iloc[0])
+else:
+    print("❌ No Carry events found.")
+
+print(features_df["total_running_distance"].describe())
 
 # Build label dataset from substitution events
 # Step 1: All players
@@ -68,6 +126,11 @@ print("✅ Final merged shape:", final_df.shape)
 print(final_df["substituted"].value_counts())
 drop_cols = ['Own Goal For', 'Own Goal Against', '50/50', 'Bad Behaviour']
 final_df = final_df.drop(columns=[c for c in drop_cols if c in final_df.columns])
+
+# Check correlation with the label AFTER merge
+correlations = final_df.corr(numeric_only=True)["substituted"].sort_values(ascending=False)
+print("\n🔍 Feature correlations with 'substituted':")
+print(correlations)
 
 # Check correlation with the label
 correlations = final_df.corr(numeric_only=True)["substituted"].sort_values(ascending=False)
@@ -174,3 +237,107 @@ plot_confusion_matrix(y_test, y_test_pred)
 # Feature Importance
 plot_feature_importance(best_rf, feature_names=X.columns.tolist())
 
+knn_model, knn_report = train_knn(X_train_val_resampled, y_train_val_resampled, X_test, y_test)
+svm_model, svm_report = train_svm(X_train_val_resampled, y_train_val_resampled, X_test, y_test)
+ann_model, ann_report = train_ann(X_train_val_resampled, y_train_val_resampled, X_test, y_test)
+
+print("\n=== KNN Report ===\n", knn_report)
+print("\n=== SVM Report ===\n", svm_report)
+print("\n=== ANN Report ===\n", ann_report)
+
+# Save these reports too
+with open("outputs/reports/model_comparison.txt", "a") as f:
+    f.write("=== KNN ===\n")
+    f.write(knn_report + "\n\n")
+
+    f.write("=== SVM ===\n")
+    f.write(svm_report + "\n\n")
+
+    f.write("=== ANN ===\n")
+    f.write(ann_report + "\n\n")
+
+xgb_model, xgb_report = train_xgboost(X_train_val_resampled, y_train_val_resampled, X_test, y_test)
+print("\n=== XGBoost Report ===\n", xgb_report)
+
+with open("outputs/reports/model_comparison.txt", "a") as f:
+    f.write("=== XGBoost ===\n")
+    f.write(xgb_report + "\n\n")
+
+explain_model_shap(xgb_model, X_test, X.columns.tolist())
+
+# Save final dataset to CSV for analysis and plotting
+final_df.to_csv("outputs/final_df_latest.csv", index=False)
+print("✅ Saved final_df_latest.csv to outputs/")
+
+plot_pca_3d(X_scaled, y)
+
+def plot_pr_auc(models, model_names, X_test, y_test, save_path):
+    plt.figure(figsize=(8, 6))
+    
+    for model, name in zip(models, model_names):
+        if hasattr(model, "predict_proba"):
+            y_scores = model.predict_proba(X_test)[:, 1]
+        elif hasattr(model, "decision_function"):
+            y_scores = model.decision_function(X_test)
+        else:
+            continue
+        
+        precision, recall, _ = precision_recall_curve(y_test, y_scores)
+        pr_auc = auc(recall, precision)
+        plt.plot(recall, precision, label=f"{name} (PR AUC = {pr_auc:.2f})")
+    
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title("Precision-Recall Curve")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    os.makedirs("outputs/plots", exist_ok=True)
+    plt.savefig(save_path)
+    print(f"✅ PR AUC curve saved to {save_path}")
+
+
+# === Call it here ===
+plot_pr_auc(
+    models=[logreg, rf, best_rf, knn_model, svm_model, ann_model, xgb_model],
+    model_names=["LogReg", "RF", "Tuned RF", "KNN", "SVM", "ANN", "XGBoost"],
+    X_test=X_test,
+    y_test=y_test,
+    save_path="outputs/plots/pr_auc_curve.png"
+)
+from sklearn.ensemble import StackingClassifier
+
+# Define base learners and meta-model
+base_models = [
+    ("svm", svm_model),
+    ("xgb", xgb_model),
+    ("rf", best_rf),
+]
+
+meta_model = LogisticRegression(max_iter=1000)
+
+# Create stacking ensemble
+stacked_model = StackingClassifier(estimators=base_models, final_estimator=meta_model, cv=5)
+
+# Fit on training set
+stacked_model.fit(X_train_val_resampled, y_train_val_resampled)
+
+# Evaluate on test set
+y_pred_stack = stacked_model.predict(X_test)
+stacked_report = classification_report(y_test, y_pred_stack)
+print("\n=== Stacked Model Report ===\n", stacked_report)
+
+# Save report
+with open("outputs/reports/model_comparison.txt", "a") as f:
+    f.write("=== Stacked Ensemble ===\n")
+    f.write(stacked_report + "\n\n")
+plot_pr_auc(
+    models=[logreg, rf, best_rf, knn_model, svm_model, ann_model, xgb_model, stacked_model],
+    model_names=["LogReg", "RF", "Tuned RF", "KNN", "SVM", "ANN", "XGBoost", "Stacked"],
+    X_test=X_test,
+    y_test=y_test,
+    save_path="outputs/plots/pr_auc_curve.png"
+)
+os.makedirs("outputs", exist_ok=True)
+joblib.dump((X_train_val_resampled, y_train_val_resampled, X_test, y_test, X.columns.tolist()), "outputs/model_training_data.pkl")
+print("✅ Saved model training data to outputs/model_training_data.pkl")

@@ -5,6 +5,10 @@ from sklearn.ensemble import RandomForestClassifier
 import joblib
 import os
 from sklearn.model_selection import GridSearchCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
 
 def train_baseline_model(X, y, test_size=0.2, random_state=42):
     X_train, X_test, y_train, y_test = train_test_split(
@@ -59,3 +63,37 @@ def tune_random_forest(X, y):
     joblib.dump(best_model, "models/tuned_random_forest.pkl")
 
     return best_model, best_params, best_score
+def train_knn(X_train, y_train, X_test, y_test):
+    knn = KNeighborsClassifier(n_neighbors=5)
+    knn.fit(X_train, y_train)
+    y_pred = knn.predict(X_test)
+    return knn, classification_report(y_test, y_pred)
+
+def train_svm(X_train, y_train, X_test, y_test):
+    svm = SVC(kernel='rbf', class_weight='balanced', probability=True)
+    svm.fit(X_train, y_train)
+    y_pred = svm.predict(X_test)
+    return svm, classification_report(y_test, y_pred)
+
+def train_ann(X_train, y_train, X_test, y_test):
+    ann = MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=500, random_state=42)
+    ann.fit(X_train, y_train)
+    y_pred = ann.predict(X_test)
+    return ann, classification_report(y_test, y_pred)
+
+
+def train_xgboost(X_train, y_train, X_test, y_test):
+    model = XGBClassifier(
+        n_estimators=100,
+        max_depth=6,
+        learning_rate=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        use_label_encoder=False,
+        eval_metric='logloss',
+        random_state=42,
+    )
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    report = classification_report(y_test, y_pred)
+    return model, report
