@@ -9,6 +9,7 @@ from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.metrics import classification_report, confusion_matrix, f1_score, accuracy_score, precision_recall_curve, auc
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import GridSearchCV
 
 from src.data_loader import load_event_data
 from src.label_builder import extract_substitution_labels_from_events
@@ -23,6 +24,9 @@ from src.feature_engineering import (
 from src.visualizations import plot_confusion_matrix, plot_feature_importance, plot_pca_3d
 from src.model import train_knn, train_svm, train_ann, tune_random_forest, train_xgboost
 from src.explainability import explain_model_shap
+from src.label_builder_substitution import define_should_be_subbed
+
+
 
 # === Setup ===
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -36,6 +40,7 @@ DATA_PATH = r"H:\AI AS\Individual Project\AI-Agent-For-Football-Tactics-During-L
 df = load_event_data(DATA_PATH, max_files=100)
 df["player_id"] = df["player"].apply(lambda x: x.get("id") if isinstance(x, dict) else None)
 df["type_name"] = df["type"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
+df["foul_committed_card"] = df["foul_committed"].apply(lambda x: x.get("card") if isinstance(x, dict) else None)
 df = add_match_context_features(df)
 df = add_timing_features(df)
 df = add_position_feature(df)
@@ -43,10 +48,23 @@ df = add_position_feature(df)
 features_df = extract_player_match_features(df)
 context_df = compute_15_min_context(df)
 features_df = features_df.merge(context_df, on=["match_id", "player_id"], how="left").fillna(0)
-features_df = pd.get_dummies(features_df.drop(columns=["minutes_played"], errors='ignore'), columns=["position_name"], dummy_na=True)
+features_df = pd.get_dummies(
+    features_df,
+    columns=["position_name"],
+    dummy_na=True
+)
 
 stamina_df = extract_stamina_features(df)
+print("Stamina columns:", stamina_df.columns.tolist())
 features_df = features_df.merge(stamina_df, on=["match_id", "player_id"], how="left").fillna(0)
+print("Final features:", features_df.columns.tolist())
+
+features_df = features_df.astype({"match_id": "Int64", "player_id": "Int64"})
+stamina_df = stamina_df.astype({"match_id": "Int64", "player_id": "Int64"})
+
+drop_cols = ['Own Goal For', 'Own Goal Against', '50/50', 'Bad Behaviour', 'Substitution', 'Player On', 'Player Off']
+
+
 
 # === Build labels ===
 all_players = df[["match_id", "player_id"]].drop_duplicates().astype("Int64")
@@ -100,6 +118,9 @@ stacked_model = StackingClassifier(
 ).fit(X_train_resampled, y_train_resampled)
 stacked_preds = stacked_model.predict(X_test)
 
+joblib.dump(X_test, f"{output_dir}/X_test.pkl")
+joblib.dump(y_test, f"{output_dir}/y_test.pkl")
+
 # === Evaluation ===
 models = [logreg, tuned_rf, xgb_model, ann_model, svm_model, knn_model, stacked_model]
 names = ["LogReg", "Tuned RF", "XGBoost", "ANN", "SVM", "KNN", "Stacked"]
@@ -135,3 +156,18 @@ plot_feature_importance(tuned_rf, feature_names=X.columns.tolist())
 plot_pca_3d(X_scaled, y)
 explain_model_shap(xgb_model, X_test, X.columns.tolist())
 final_df.to_csv(f"{output_dir}/final_df.csv", index=False)
+
+print("Final DF columns:", final_df.columns.tolist())
+assert "total_running_distance" in final_df.columns, "Missing total_running_distance in final_df"
+
+# Add dummy xThreat_start and xThreat_end if not already created
+if "xThreat_start" not in final_df.columns:
+    final_df["xThreat_start"] = final_df["passes_last_15_minute"]  # or any meaningful proxy
+if "xThreat_end" not in final_df.columns:
+    final_df["xThreat_end"] = final_df["Pass"]  # or any other feature
+
+print("Added dummy xThreat columns for testing.")
+
+# Add substitution-worthylabel
+final_df['should_be_subbed'] = define_should_be_subbed(final_df)
+

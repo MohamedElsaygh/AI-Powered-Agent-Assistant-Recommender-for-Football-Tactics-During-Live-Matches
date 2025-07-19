@@ -1,0 +1,91 @@
+
+=== LogReg ===
+Accuracy: 0.526
+Macro F1: 0.503
+F1 (True): 0.398
+              precision    recall  f1-score   support
+
+       False       0.92      0.46      0.61       439
+        True       0.26      0.83      0.40       103
+
+    accuracy                           0.53       542
+   macro avg       0.59      0.64      0.50       542
+weighted avg       0.79      0.53      0.57       542
+
+=== Tuned RF ===
+Accuracy: 0.814
+Macro F1: 0.668
+F1 (True): 0.448
+              precision    recall  f1-score   support
+
+       False       0.87      0.91      0.89       439
+        True       0.51      0.40      0.45       103
+
+    accuracy                           0.81       542
+   macro avg       0.69      0.65      0.67       542
+weighted avg       0.80      0.81      0.80       542
+
+=== XGBoost ===
+Accuracy: 0.806
+Macro F1: 0.661
+F1 (True): 0.439
+              precision    recall  f1-score   support
+
+       False       0.86      0.90      0.88       439
+        True       0.49      0.40      0.44       103
+
+    accuracy                           0.81       542
+   macro avg       0.68      0.65      0.66       542
+weighted avg       0.79      0.81      0.80       542
+
+=== ANN ===
+Accuracy: 0.764
+Macro F1: 0.640
+F1 (True): 0.429
+              precision    recall  f1-score   support
+
+       False       0.87      0.83      0.85       439
+        True       0.40      0.47      0.43       103
+
+    accuracy                           0.76       542
+   macro avg       0.63      0.65      0.64       542
+weighted avg       0.78      0.76      0.77       542
+
+=== SVM ===
+Accuracy: 0.744
+Macro F1: 0.647
+F1 (True): 0.463
+              precision    recall  f1-score   support
+
+       False       0.89      0.78      0.83       439
+        True       0.38      0.58      0.46       103
+
+    accuracy                           0.74       542
+   macro avg       0.64      0.68      0.65       542
+weighted avg       0.79      0.74      0.76       542
+
+=== KNN ===
+Accuracy: 0.638
+Macro F1: 0.580
+F1 (True): 0.424
+              precision    recall  f1-score   support
+
+       False       0.90      0.62      0.74       439
+        True       0.30      0.70      0.42       103
+
+    accuracy                           0.64       542
+   macro avg       0.60      0.66      0.58       542
+weighted avg       0.79      0.64      0.68       542
+
+=== Stacked ===
+Accuracy: 0.803
+Macro F1: 0.657
+F1 (True): 0.434
+              precision    recall  f1-score   support
+
+       False       0.86      0.90      0.88       439
+        True       0.48      0.40      0.43       103
+
+    accuracy                           0.80       542
+   macro avg       0.67      0.65      0.66       542
+weighted avg       0.79      0.80      0.80       542

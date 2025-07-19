@@ -41,3 +41,5 @@ def plot_pca_3d(X, y, output_path="outputs/plots/pca_3d.png"):
     print(f"✅ PCA 3D plot saved to {output_path}")
     plt.show()
     plt.close()
+
+    

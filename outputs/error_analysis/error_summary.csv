@@ -1,0 +1,6 @@
+Model,Num_Misclassified
+LogisticRegression,8
+RandomForest,7
+XGBoost,7
+ANN,21
+SVM,15

@@ -48,3 +48,16 @@ def extract_substitution_labels_from_events(events_df):
 
     return pd.DataFrame(labels)
 
+def build_should_be_subbed_labels(features_df: pd.DataFrame) -> pd.DataFrame:
+    fatigue_threshold = 0.6  # not used now
+    duels_lost_threshold = 3
+    pass_drop_threshold = 5
+
+    features_df["should_be_subbed"] = (
+        (features_df["duels_lost"] > duels_lost_threshold) |
+        (features_df["passes_last_15_minute"] < pass_drop_threshold)
+    ).astype(int)
+
+    return features_df[["match_id", "player_id", "should_be_subbed"]]
+
+
