@@ -256,7 +256,7 @@ for metric in metrics:
     plt.tight_layout()
     plot_path = f"outputs/{metric.lower()}_comparison.png"
     plt.savefig(plot_path)
-    plots[metric] = plot_path
+    plots[metric] = plot_path 
     plt.close()
 
 combined_df_sorted = combined_df.sort_values(by="Macro_F1", ascending=False)
