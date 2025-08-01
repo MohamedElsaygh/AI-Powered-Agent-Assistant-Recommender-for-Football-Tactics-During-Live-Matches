@@ -1,0 +1,7 @@
+,LogisticRegression,RandomForest,SVM,MLP,XGBoost
+classifier__C,10.0,,0.1,,
+classifier__max_depth,,10.0,,,3.0
+classifier__n_estimators,,200.0,,,100.0
+classifier__kernel,,,linear,,
+classifier__alpha,,,,0.001,
+classifier__hidden_layer_sizes,,,,"(50, 50)",
