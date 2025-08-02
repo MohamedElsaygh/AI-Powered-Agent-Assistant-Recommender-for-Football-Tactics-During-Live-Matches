@@ -1,0 +1,4 @@
+match_id,player_id,position_name,minute,Own Goal For,Own Goal Against,label,match_id,player_id,true,prob,pred
+16010,6393,Left Center Forward,3726,0,0,0,16010,6393,0,0.8105641246118669,1
+16029,6616,Center Forward,1477,0,0,0,16029,6616,0,0.7900186632400443,1
+15998,6608,Right Wing,3757,0,0,0,15998,6608,0,0.7647904846240283,1

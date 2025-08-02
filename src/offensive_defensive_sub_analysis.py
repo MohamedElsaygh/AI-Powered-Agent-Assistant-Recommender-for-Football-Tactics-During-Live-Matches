@@ -4,10 +4,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 import shap
+import os
 
-from sklearn.model_selection import GroupKFold, GridSearchCV, cross_val_score
-from sklearn.metrics import (classification_report, confusion_matrix,
-                             f1_score, accuracy_score, precision_recall_curve)
+from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.metrics import (classification_report, confusion_matrix, f1_score,
+                             accuracy_score, precision_recall_curve,
+                             average_precision_score)
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
@@ -17,143 +19,132 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from imblearn.over_sampling import SMOTE
 
-# =========================================
-# 1. Load & Preprocess Data
-# =========================================
-df = pd.read_csv("data/processed/should_be_subbed_dataset.csv")
-print("Initial label distribution:\n", df['should_be_subbed_y'].value_counts())
+# Output directories
+os.makedirs("outputs/off_def", exist_ok=True)
 
-# Filter valid labels
+# ========== 1. Load Data ==========
+df = pd.read_csv("data/processed/should_be_subbed_dataset.csv")
 df = df[df['should_be_subbed_y'].isin([0, 1])]
 df['label'] = df['should_be_subbed_y'].astype(int)
-
-# Tactical context features (score margin etc.)
 if 'score_margin' not in df.columns:
     df['score_margin'] = df['Own Goal For'] - df['Own Goal Against']
 
-# Feature matrix
 X = df.drop(columns=['match_id', 'player_id', 'position_name',
                      'should_be_subbed_x', 'should_be_subbed_y', 'label'])
 y = df['label']
-groups = df['match_id']  # Group by match
+groups = df['match_id']
 
-# =========================================
-# 2. Train-Test Split using GroupKFold
-# =========================================
-gkf = GroupKFold(n_splits=5)
-train_idx, test_idx = next(gkf.split(X, y, groups))  # first fold
-X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+drop_feats = ['duplicate_feature1', 'redundant_feature2']
+X = X.drop(columns=[col for col in drop_feats if col in X.columns])
 
-# Handle imbalance with SMOTE
-smote = SMOTE(random_state=42)
-X_train, y_train = smote.fit_resample(X_train, y_train)
-
-# =========================================
-# 3. Define Models & Hyperparameters
-# =========================================
+# ========== 2. Define Models ==========
 models = {
-    "LogisticRegression": (LogisticRegression(max_iter=2000, class_weight='balanced'),
-                           {"C": [0.01, 0.1, 1, 10]}),
-    "RandomForest": (RandomForestClassifier(class_weight='balanced', random_state=42),
-                     {"n_estimators": [100, 200], "max_depth": [5, 8], "min_samples_split": [2, 5]}),
-    "XGBoost": (XGBClassifier(eval_metric='logloss', random_state=42,
-                              scale_pos_weight=len(y_train[y_train == 0]) / len(y_train[y_train == 1])),
-                {"n_estimators": [100, 200], "max_depth": [3, 5], "learning_rate": [0.05, 0.1]}),
-    "SVM": (SVC(class_weight='balanced', probability=True),
-            {"C": [0.1, 1, 10], "kernel": ['rbf', 'linear']}),
-    "ANN": (MLPClassifier(max_iter=1000, early_stopping=True),
-            {"hidden_layer_sizes": [(32,), (64,), (128,)], "alpha": [0.0001, 0.001, 0.01]})
+    "LogisticRegression": LogisticRegression(max_iter=2000, class_weight='balanced', C=0.1),
+    "RandomForest": RandomForestClassifier(n_estimators=100, max_depth=5, min_samples_split=5,
+                                           class_weight='balanced', random_state=42),
+    "XGBoost": XGBClassifier(eval_metric='logloss', random_state=42, use_label_encoder=False,
+                             scale_pos_weight=len(y[y == 0]) / len(y[y == 1]),
+                             n_estimators=100, max_depth=3, learning_rate=0.03),
+    "SVM": SVC(C=0.1, kernel='linear', class_weight='balanced', probability=True),
+    "ANN": MLPClassifier(hidden_layer_sizes=(32,), alpha=0.01, max_iter=1000, early_stopping=True)
 }
 
-results = {}
-best_model = None
-best_score = 0
-comparison_rows = []
+results = []
+cv_scores = {}
+final_scores = {}
+logo = LeaveOneGroupOut()
+# ========== 3. Train & Evaluate ==========
+for model_name, model in models.items():
+    print(f"\nRunning LOGO CV for {model_name}...")
+    pipe = Pipeline([('scaler', StandardScaler()), ('model', model)])
+    fold_metrics = []
 
-# =========================================
-# 4. Train & Evaluate
-# =========================================
-for name, (model, params) in models.items():
-    print(f"\nTraining {name}...")
-    pipe = Pipeline([("scaler", StandardScaler()), ("model", model)])
-    grid = GridSearchCV(pipe, {"model__" + k: v for k, v in params.items()},
-                        scoring='f1_macro', cv=3, n_jobs=-1)
-    grid.fit(X_train, y_train)
+    for fold, (train_idx, test_idx) in enumerate(logo.split(X, y, groups)):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-    y_pred = grid.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred, average='macro')
-    cm = confusion_matrix(y_test, y_pred)
+        sm = SMOTE(random_state=fold)
+        X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
 
-    # CV score
-    cv_scores = cross_val_score(grid.best_estimator_, X_train, y_train, cv=3, scoring='f1_macro')
-    mean_cv = np.mean(cv_scores)
+        pipe.fit(X_train_res, y_train_res)
+        y_pred = pipe.predict(X_test)
 
-    results[name] = {
-        "model": grid.best_estimator_,
-        "accuracy": acc,
-        "f1_macro": f1,
-        "cv_f1_macro": mean_cv,
-        "report": classification_report(y_test, y_pred),
-        "conf_matrix": cm
-    }
+        acc = accuracy_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred, average='macro')
+        fold_metrics.append((acc, f1))
 
-    comparison_rows.append([name, acc, f1, mean_cv])
-    print(f"=== {name} ===")
-    print("Best Params:", grid.best_params_)
-    print("Accuracy:", acc)
-    print("Macro F1 Score:", f1)
-    print("Mean CV F1:", mean_cv)
-    print(results[name]["report"])
-    print("Confusion Matrix:\n", cm)
+    accs, f1s = zip(*fold_metrics)
+    mean_acc = np.mean(accs)
+    mean_f1 = np.mean(f1s)
 
-    if f1 > best_score:
-        best_score = f1
-        best_model = grid.best_estimator_
+    print(f"Mean Accuracy: {mean_acc:.3f} | Mean Macro F1: {mean_f1:.3f}")
+    results.append((model_name, mean_acc, mean_f1))
+    cv_scores[model_name] = mean_f1
 
-# =========================================
-# 5. Save Best Model & Comparison
-# =========================================
-joblib.dump(best_model, "best_model_offensive_defensive.pkl")
-X_test.to_csv("X_test_off_def.csv", index=False)
-comparison_df = pd.DataFrame(comparison_rows, columns=['Model', 'Test_Accuracy', 'Test_F1', 'CV_F1'])
-comparison_df.to_csv("model_comparison_off_def.csv", index=False)
-print("\nModel comparison saved to model_comparison_off_def.csv")
+    # Final model on all data
+    sm = SMOTE(random_state=42)
+    X_res, y_res = sm.fit_resample(X, y)
+    pipe.fit(X_res, y_res)
+    joblib.dump(pipe, f"outputs/off_def/{model_name}_final.pkl")
 
-# =========================================
-# 6. Confusion Matrices
-# =========================================
-for name in results:
+    y_proba = pipe.predict_proba(X)[:, 1]
+
+    # Threshold tuning using PR AUC
+    precisions, recalls, thresholds = precision_recall_curve(y, y_proba)
+    pr_auc = average_precision_score(y, y_proba)
+    best_threshold_idx = np.argmax(2 * (precisions * recalls) / (precisions + recalls + 1e-8))
+    best_thresh = thresholds[best_threshold_idx]
+    print(f"{model_name} PR AUC: {pr_auc:.3f} | Best Threshold: {best_thresh:.2f}")
+
+    y_pred_thresh = (y_proba >= best_thresh).astype(int)
+    final_f1 = f1_score(y, y_pred_thresh, average='macro')
+    final_scores[model_name] = final_f1
+
+    # Save predictions
+    pred_df = df[['match_id', 'player_id']].copy()
+    pred_df['true_label'] = y
+    pred_df['predicted_proba'] = y_proba
+    pred_df['predicted_label'] = y_pred_thresh
+    pred_df.to_csv(f"outputs/off_def/predictions_{model_name}.csv", index=False)
+    # Confusion Matrix
+    cm = confusion_matrix(y, y_pred_thresh)
     plt.figure(figsize=(5, 4))
-    sns.heatmap(results[name]["conf_matrix"], annot=True, fmt='d', cmap='Blues')
-    plt.title(f'Confusion Matrix: {name}')
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.savefig(f'conf_matrix_{name}_off_def.png')
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title(f'Confusion Matrix: {model_name}')
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.savefig(f"outputs/off_def/cm_{model_name}.png")
     plt.close()
 
-# =========================================
-# 7. Threshold Calibration (Best Model)
-# =========================================
-if hasattr(best_model.named_steps['model'], "predict_proba"):
-    y_probs = best_model.predict_proba(X_test)[:, 1]
-    precision, recall, thresholds = precision_recall_curve(y_test, y_probs)
-    f1_scores = 2 * (precision * recall) / (precision + recall + 1e-9)
-    best_thresh = thresholds[np.argmax(f1_scores)]
-    print(f"\nOptimal Threshold: {best_thresh}")
-    y_thresh = (y_probs >= best_thresh).astype(int)
-    print("Recalibrated Report:\n", classification_report(y_test, y_thresh))
-    joblib.dump(best_thresh, "best_threshold.pkl")
+    # SHAP only for tree-based models
+    if model_name in ["RandomForest", "XGBoost"]:
+        explainer = shap.Explainer(pipe.named_steps['model'], X)
+        shap_values = explainer(X)
+        shap.summary_plot(shap_values, X, show=False, plot_type="bar")
+        plt.title(f'SHAP Summary: {model_name}')
+        plt.savefig(f"outputs/off_def/shap_{model_name}.png")
+        plt.close()
 
-# =========================================
-# 8. SHAP Analysis for Tree Models
-# =========================================
-if any(tree_model in str(type(best_model.named_steps['model'])) for tree_model in ['RandomForest', 'XGBClassifier']):
-    explainer = shap.TreeExplainer(best_model.named_steps['model'])
-    shap_values = explainer.shap_values(X_test)
-    shap.summary_plot(shap_values, X_test, plot_type="bar", show=False)
-    plt.title("SHAP Feature Importance (Offensive vs Defensive)")
-    plt.tight_layout()
-    plt.savefig("shap_summary_off_def.png")
-    plt.show()
+# ========== 4. Save Comparison Table ==========
+df_results = pd.DataFrame(results, columns=['Model', 'Mean_Accuracy', 'Mean_Macro_F1'])
+df_results.sort_values(by='Mean_Macro_F1', ascending=False, inplace=True)
+df_results.to_csv("outputs/off_def/model_comparison_LOGO.csv", index=False)
+print("Model comparison saved to outputs/off_def/model_comparison_LOGO.csv")
+
+# ========== 5. CV vs Final F1 Plot ==========
+plt.figure(figsize=(8, 5))
+models_list = list(cv_scores.keys())
+cv_f1 = [cv_scores[m] for m in models_list]
+final_f1 = [final_scores[m] for m in models_list]
+
+x = np.arange(len(models_list))
+width = 0.35
+plt.bar(x - width/2, cv_f1, width, label='LOGO CV F1')
+plt.bar(x + width/2, final_f1, width, label='Full Model Tuned F1')
+plt.xticks(x, models_list, rotation=45)
+plt.ylabel("Macro F1 Score")
+plt.title("LOGO CV vs Full Tuned Model F1")
+plt.legend()
+plt.tight_layout()
+plt.savefig("outputs/off_def/cv_vs_final_f1.png")
+plt.close()
