@@ -4,7 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import shap
 import joblib
-
+import seaborn as sns
 from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
@@ -16,6 +16,12 @@ from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, f1_score, classification_report
+from sklearn.inspection import permutation_importance
+from imblearn.over_sampling import SMOTE
+from sklearn.exceptions import NotFittedError
+from sklearn.metrics import precision_recall_curve, confusion_matrix, ConfusionMatrixDisplay
+from datetime import datetime
+
 
 # ========== Load and preprocess data ==========
 df = pd.read_csv("data/processed/should_be_subbed_dataset.csv")
@@ -126,21 +132,6 @@ summary_df = pd.DataFrame.from_dict(results, orient='index')[['accuracy', 'f1_ma
 summary_df.to_csv("outputs/model_comparison_final.csv")
 print("Saved final model metrics to outputs/model_comparison_final.csv")
 
-import pandas as pd
-import numpy as np
-import os
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.metrics import accuracy_score, f1_score, classification_report
-import joblib
-
-
 df.drop(columns=['match_id', 'player_id', 'should_be_subbed_y'], errors='ignore', inplace=True)
 df.dropna(subset=['should_be_subbed_x'], inplace=True)
 
@@ -225,22 +216,6 @@ for name, (model, param_grid) in models.items():
 # Save summary
 summary_df = pd.DataFrame.from_dict(results, orient='index')[['accuracy', 'f1_macro', 'val_f1_cv']]
 summary_df.to_csv("outputs/model_comparison_regularized.csv")
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import joblib
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    confusion_matrix,
-    classification_report,
-    f1_score,
-    precision_recall_curve
-)
-from sklearn.inspection import permutation_importance
 
 # === Train-test split ===
 X_train, X_test, y_train, y_test = train_test_split(

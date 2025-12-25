@@ -1,6 +1,7 @@
 import os
 import joblib
 import pandas as pd
+import shap
 import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.model_selection import train_test_split
@@ -63,7 +64,6 @@ features_df = features_df.astype({"match_id": "Int64", "player_id": "Int64"})
 stamina_df = stamina_df.astype({"match_id": "Int64", "player_id": "Int64"})
 
 drop_cols = ['Own Goal For', 'Own Goal Against', '50/50', 'Bad Behaviour', 'Substitution', 'Player On', 'Player Off']
-
 
 
 # === Build labels ===
@@ -141,33 +141,72 @@ with open(f"{output_dir}/reports/model_comparison.txt", "w") as f:
 
         print(f"\n=== {name} ===")
         print(f"Accuracy: {acc:.3f} | Macro F1: {f1_macro:.3f} | F1 (True): {f1_true:.3f}")
+        print(classification_report(y_test, preds, zero_division=0))
+
+    # === Save per-model classification report to CSV ===
+        report_dict = classification_report(y_test, preds, output_dict=True, zero_division=0)
+        report_df = pd.DataFrame(report_dict).transpose()
+        report_path = f"{output_dir}/reports/classification_report_{name.replace(' ', '_')}.csv"
+        report_df.to_csv(report_path)
 
         plot_confusion_matrix(y_test, preds, title=f"{name} Confusion Matrix", save_path=f"{output_dir}/plots/conf_matrix_{name}.png")
         joblib.dump(model, f"{output_dir}/models/{name.lower().replace(' ', '_')}.pkl")
 
         if acc > best_score:
             best_score = acc
-            best_model = name
+            best_model = model  # <== save the model object instead of just the name
+
+
 
 print(f"\n🏆 Best Model: {best_model} (Accuracy = {best_score:.3f})")
 
+best_model.fit(X_train, y_train)
+preds = best_model.predict(X_test)
+
+
+
 # === Extras ===
 plot_feature_importance(tuned_rf, feature_names=X.columns.tolist())
-plot_pca_3d(X_scaled, y)
+plot_pca_3d(X_scaled, y, f"{output_dir}/plots/pca_3d.png")
 explain_model_shap(xgb_model, X_test, X.columns.tolist())
 final_df.to_csv(f"{output_dir}/final_df.csv", index=False)
+
+# === SHAP beeswarm plot ===
+print("Generating SHAP beeswarm plot...")
+
+# Keep feature names from original dataframe
+feature_names = X.columns.tolist()
+
+# Create SHAP explainer and values
+explainer = shap.TreeExplainer(best_model)
+shap_values = explainer.shap_values(X_test)
+
+# Wrap with SHAP Explanation object 
+shap_exp = shap.Explanation(
+    values=shap_values,
+    base_values=explainer.expected_value,
+    data=X_test,
+    feature_names=feature_names
+)
+
+# Plot and save
+shap.plots.beeswarm(shap_exp, show=False)
+plt.tight_layout()
+plt.savefig(f"{output_dir}/plots/shap_beeswarm_pipeline_A.png", dpi=300)
+plt.show()
+
 
 print("Final DF columns:", final_df.columns.tolist())
 assert "total_running_distance" in final_df.columns, "Missing total_running_distance in final_df"
 
-# Add dummy xThreat_start and xThreat_end if not already created
+
 if "xThreat_start" not in final_df.columns:
-    final_df["xThreat_start"] = final_df["passes_last_15_minute"]  # or any meaningful proxy
+    final_df["xThreat_start"] = final_df["passes_last_15_minute"]  
 if "xThreat_end" not in final_df.columns:
-    final_df["xThreat_end"] = final_df["Pass"]  # or any other feature
+    final_df["xThreat_end"] = final_df["Pass"]  
 
 print("Added dummy xThreat columns for testing.")
 
-# Add substitution-worthylabel
+
 final_df['should_be_subbed'] = define_should_be_subbed(final_df)
 
