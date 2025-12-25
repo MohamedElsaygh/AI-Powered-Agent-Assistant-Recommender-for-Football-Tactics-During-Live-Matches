@@ -82,7 +82,7 @@ The goal: help coaches make **data-driven, context-aware tactical decisions** du
 
 ## 📬 Contact
 
-- **Email:** mohamedelsaygh@gmail.com  
+- **Email:** moelsaygh7@gmail.com  
 - **LinkedIn:** [linkedin.com/in/mohamedelsaygh](https://linkedin.com/in/mohamedelsaygh)  
 - **GitHub:** [github.com/MohamedElsaygh](https://github.com/MohamedElsaygh)
 
